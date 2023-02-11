@@ -635,6 +635,38 @@ class InstagramUserIE(InstagramPlaylistBaseIE):
 
     _QUERY_HASH = '42323d64886122307be10013ad2dcc44',
 
+    def _real_extract(self, url):
+        username = self._match_id(url)
+        userdata = self._download_json(
+            f'{self._API_BASE_URL}/users/web_profile_info/?username={username}',
+            username, errnote=False, fatal=False, headers=self._API_HEADERS)['data']
+
+        videos = []
+        cursor = ''
+
+        while(1):
+            feed_json = self._download_json(
+                f'{self._API_BASE_URL}/feed/user/{username}/username/?count=100&max_id={cursor}',
+                username, errnote=False, fatal=False, headers=self._API_HEADERS)
+            videos += traverse_obj(feed_json, 'items', expected_type=list) or []
+
+            has_next_page = traverse_obj(feed_json, 'more_available')
+            cursor = traverse_obj(feed_json, 'next_max_id', expected_type=str)
+            if not has_next_page or not cursor:
+                break
+
+        info_data = []
+        for video in videos:
+            highlight_data = self._extract_product(video)
+            if highlight_data.get('formats'):
+                info_data.append({
+                    **highlight_data,
+                    'uploader': userdata.get('user', {}).get('full_name'),
+                    'uploader_id': userdata.get('user', {}).get('id'),
+                })
+
+        return self.playlist_result(info_data, playlist_id=username, playlist_title=format_field(username, None, 'Posts by %s'))
+
     @staticmethod
     def _parse_timeline_from(data):
         # extracts the media timeline data from a GraphQL result
